@@ -1,0 +1,375 @@
+// This is your Prisma schema file for CRM Integration
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Donor {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Personal Information
+  firstName     String
+  lastName      String
+  email         String   @unique
+  phone         String?
+  dateOfBirth   DateTime?
+  gender        Gender?
+
+  // Contact Information
+  address       String?
+  city          String?
+  state         String?
+  postcode      String?
+  country       String   @default("Malaysia")
+
+  // Donor Profile
+  donorType     DonorType @default(INDIVIDUAL)
+  companyName   String? // For corporate donors
+  taxId         String? // For tax receipts
+
+  // Engagement Tracking
+  journeyStage  SupporterJourney @default(POTENTIAL_LOYALIST)
+  totalDonated  Decimal @default(0) @db.Decimal(12, 2)
+  donationCount Int     @default(0)
+  firstDonationDate DateTime?
+  lastDonationDate  DateTime?
+
+  // Preferences
+  preferredContact    ContactMethod @default(EMAIL)
+  communicationOptIn  Boolean @default(true)
+  newsletterOptIn     Boolean @default(true)
+  tags                String[] // ["ramadan_donor", "monthly_giver", "corporate"]
+
+  // Relationships
+  donations     Donation[]
+  engagements   Engagement[]
+  notes         DonorNote[]
+  campaigns     Campaign[] @relation("CampaignDonors")
+
+  // Metadata
+  source        String? // "website", "social_media", "event", "referral"
+  referredBy    Donor?  @relation("Referrals", fields: [referredById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  referredById  String?
+  referrals     Donor[] @relation("Referrals")
+
+  @@index([email])
+  @@index([journeyStage])
+  @@index([createdAt])
+  @@index([lastDonationDate])
+}
+
+model Donation {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Donation Details
+  amount        Decimal  @db.Decimal(10, 2)
+  currency      String   @default("MYR")
+  status        DonationStatus @default(COMPLETED)
+
+  // Attribution
+  donor         Donor    @relation(fields: [donorId], references: [id])
+  donorId       String
+  campaign      Campaign? @relation(fields: [campaignId], references: [id])
+  campaignId    String?
+
+  // Payment Information
+  paymentMethod PaymentMethod
+  transactionId String?  @unique
+  receiptNumber String?  @unique
+  receiptUrl    String?
+
+  // Purpose & Impact
+  purpose       DonationPurpose @default(GENERAL)
+  projectId     String? // Link to projects-dashboard
+  beneficiaryId String? // Link to beneficiary system
+
+  // Tax Receipt
+  taxDeductible Boolean @default(true)
+  taxReceiptSent Boolean @default(false)
+  taxReceiptSentAt DateTime?
+
+  // Recurring Donation
+  isRecurring   Boolean @default(false)
+  recurringId   String? // Group recurring donations
+  frequency     RecurringFrequency?
+
+  // Notes & Metadata
+  notes         String?  @db.Text
+  internalNotes String?  @db.Text // Staff notes not visible to donor
+
+  @@index([donorId])
+  @@index([campaignId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Campaign {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Campaign Details
+  name          String
+  description   String   @db.Text
+  type          CampaignType
+  status        CampaignStatus @default(DRAFT)
+
+  // Goals & Targets
+  goalAmount    Decimal? @db.Decimal(12, 2)
+  currentAmount Decimal  @default(0) @db.Decimal(12, 2)
+  donorTarget   Int?
+  currentDonors Int      @default(0)
+
+  // Timeline
+  startDate     DateTime
+  endDate       DateTime
+
+  // Campaign Materials
+  imageUrl      String?
+  videoUrl      String?
+  landingPageUrl String?
+
+  // Relationships
+  donations     Donation[]
+  engagements   Engagement[]
+  donors        Donor[] @relation("CampaignDonors")
+
+  // Segmentation
+  targetSegment String[] // ["potential_loyalist", "monthly_giver"]
+
+  // Email Campaign
+  emailTemplate String?  @db.Text
+  emailSubject  String?
+  emailSentAt   DateTime?
+  emailSentTo   Int      @default(0)
+  emailOpenRate Decimal? @db.Decimal(5, 2)
+  emailClickRate Decimal? @db.Decimal(5, 2)
+
+  // Metadata
+  createdBy     User     @relation(fields: [createdById], references: [id])
+  createdById   String
+
+  @@index([status])
+  @@index([type])
+  @@index([startDate])
+}
+
+model Engagement {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+
+  // Engagement Details
+  type          EngagementType
+  title         String
+  description   String?  @db.Text
+
+  // Attribution
+  donor         Donor    @relation(fields: [donorId], references: [id])
+  donorId       String
+  campaign      Campaign? @relation(fields: [campaignId], references: [id])
+  campaignId    String?
+
+  // Engagement Metrics
+  channel       Channel
+  outcome       EngagementOutcome?
+
+  // Metadata
+  recordedBy    User     @relation(fields: [recordedById], references: [id])
+  recordedById  String
+  notes         String?  @db.Text
+
+  @@index([donorId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model DonorNote {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  content       String   @db.Text
+  isPinned      Boolean  @default(false)
+
+  donor         Donor    @relation(fields: [donorId], references: [id], onDelete: Cascade)
+  donorId       String
+
+  createdBy     User     @relation(fields: [createdById], references: [id])
+  createdById   String
+
+  @@index([donorId])
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  role          UserRole
+  department    String?
+  phone         String?
+
+  // Relations
+  createdCampaigns Campaign[]
+  recordedEngagements Engagement[]
+  donorNotes    DonorNote[]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String
+  details     Json
+  userId      String
+  ipAddress   String?
+  userAgent   String?
+  timestamp   DateTime @default(now())
+
+  @@index([userId])
+  @@index([timestamp])
+  @@index([action])
+}
+
+// Enums
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum DonorType {
+  INDIVIDUAL
+  CORPORATE
+  FOUNDATION
+  GOVERNMENT
+  OTHER
+}
+
+enum SupporterJourney {
+  FIRST_TIME_DONOR        // Just donated once
+  POTENTIAL_LOYALIST      // 2-3 donations, showing interest
+  LOYAL_COLLABORATOR      // 4+ donations or recurring, highly engaged
+  MAJOR_DONOR             // Large single or cumulative donations
+  LAPSED                  // No donation in 12+ months
+  INACTIVE                // Opted out of communications
+}
+
+enum ContactMethod {
+  EMAIL
+  PHONE
+  WHATSAPP
+  SMS
+}
+
+enum DonationStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CREDIT_CARD
+  DEBIT_CARD
+  BANK_TRANSFER
+  PAYPAL
+  STRIPE
+  CASH
+  CHEQUE
+  OTHER
+}
+
+enum DonationPurpose {
+  GENERAL
+  HOMELESS_CARE
+  FOOD_DISTRIBUTION
+  EDUCATION
+  HEALTHCARE
+  SHELTER
+  EMERGENCY_RELIEF
+  QURBANI
+  ZAKAT
+  SADAQAH
+  OTHER
+}
+
+enum RecurringFrequency {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum CampaignType {
+  FUNDRAISING
+  AWARENESS
+  VOLUNTEER_RECRUITMENT
+  EVENT
+  EMAIL_CAMPAIGN
+  RAMADAN
+  QURBANI
+  YEAR_END
+  OTHER
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum EngagementType {
+  EMAIL_OPENED
+  EMAIL_CLICKED
+  WEBSITE_VISIT
+  EVENT_ATTENDANCE
+  PHONE_CALL
+  MEETING
+  VOLUNTEER_SESSION
+  SOCIAL_MEDIA_INTERACTION
+  SURVEY_RESPONSE
+  FEEDBACK_PROVIDED
+  OTHER
+}
+
+enum Channel {
+  EMAIL
+  PHONE
+  WHATSAPP
+  SMS
+  SOCIAL_MEDIA
+  WEBSITE
+  IN_PERSON
+  EVENT
+  OTHER
+}
+
+enum EngagementOutcome {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+  FOLLOW_UP_NEEDED
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  FUNDRAISING_MANAGER
+  CAMPAIGN_COORDINATOR
+  ANALYST
+}
